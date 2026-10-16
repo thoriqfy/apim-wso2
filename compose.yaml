@@ -1,0 +1,14 @@
+services:
+  wso2-apim:
+    image: wso2/wso2am:4.5.0
+    container_name: wso2-apim
+    restart: unless-stopped
+    ports:
+      - "9443:9443"
+      - "8243:8243"
+      - "8280:8280"
+    volumes:
+      - wso2_repository:/home/wso2carbon/wso2am-4.5.0/repository
+
+volumes:
+  wso2_repository:

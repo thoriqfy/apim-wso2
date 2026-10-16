@@ -1,0 +1,15 @@
+# Keep this deployment repository limited to reviewed source files.
+/*
+!/.gitignore
+!/README.md
+!/compose.yaml
+!/openapi.yaml
+!/crest-openapi.yaml
+
+# Never commit credentials or private key material.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.jks

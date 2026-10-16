@@ -1,0 +1,38 @@
+openapi: 3.0.3
+
+info:
+  title: Simple Hello API
+  version: 1.0.0
+  description: A minimal OpenAPI example for testing WSO2 API Manager.
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: https://example.com
+
+tags:
+  - name: Hello
+    description: Hello API operations
+
+paths:
+  /hello:
+    get:
+      summary: Return a hello message
+      description: Returns a simple hello message.
+      operationId: getHello
+      tags:
+        - Hello
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - message
+                properties:
+                  message:
+                    type: string
+                    example: Hello, world!

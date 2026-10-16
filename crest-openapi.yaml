@@ -1,0 +1,913 @@
+openapi: 3.0.3
+
+info:
+  title: CREST Crypto Analytics API
+  version: 1.1.0-inspected
+  description: |
+    Example OpenAPI definition for the APIs used by the CREST web application.
+
+    The public market schema was verified against the deployed application on
+    2026-09-02. The authenticated terminal and asset-detail experience were also
+    inspected with a standard user session. Authenticated request shapes that
+    cannot be read directly from the UI were derived from the deployed web client.
+
+    CREST uses a browser-managed, chunked Supabase session cookie. For API clients,
+    supply the complete Cookie header (all `auth-token.N` chunks) through the
+    `supabaseCookieHeader` security scheme. Never commit a real session cookie to
+    this file, Postman, source control, or logs.
+
+    Asset-detail URLs such as `/assets/BTC?timeframe=4h` are server-rendered web
+    pages and are intentionally not represented as JSON API operations here.
+  contact:
+    name: CREST API Support
+
+servers:
+  - url: https://crest-inky.vercel.app
+    description: Deployed CREST application
+
+externalDocs:
+  description: CREST web terminal
+  url: https://crest-inky.vercel.app/
+
+tags:
+  - name: Market
+    description: Public crypto-market analytics.
+  - name: AI
+    description: Authenticated, context-aware market questions.
+  - name: Authentication
+    description: User profile and session operations.
+  - name: Administration
+    description: Administrator-only AI provider configuration.
+
+paths:
+  /api/market/assets:
+    get:
+      tags: [Market]
+      summary: List ranked market assets
+      description: Returns the latest ranked market snapshot, breadth summaries, and freshness metadata.
+      operationId: listMarketAssets
+      security: []
+      parameters:
+        - name: timeframe
+          in: query
+          required: true
+          description: Analytical timeframe selected in the CREST terminal.
+          schema:
+            type: string
+            enum: [30m, 4h]
+          example: 30m
+      responses:
+        "200":
+          description: Latest market snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketAssetsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/ai/chat:
+    post:
+      tags: [AI]
+      summary: Ask a question about the current market context
+      operationId: askMarketQuestion
+      security:
+        - supabaseCookieHeader: []
+      x-codeSamples:
+        - lang: cURL
+          label: Authenticated market question
+          source: |
+            curl --request POST \
+              --url 'https://crest-inky.vercel.app/api/ai/chat' \
+              --header 'Accept: application/json' \
+              --header 'Content-Type: application/json' \
+              --header 'Cookie: {{crest_cookie_header}}' \
+              --data '{"message":"Which assets have actionable 30m setups?","timeframe":"30m","activePreset":"Custom","filters":{"chains":[],"searchQuery":"","rsiRange":[0,100],"maDistanceRange":[-100,100]},"sort":{"key":"rank","direction":"asc"},"pinnedAssets":[]}'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiChatRequest"
+      responses:
+        "200":
+          description: AI-generated answer with context and quota metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiChatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: Weekly prompt quota exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/auth/profile:
+    get:
+      tags: [Authentication]
+      summary: Get the current user profile
+      operationId: getCurrentProfile
+      security:
+        - supabaseCookieHeader: []
+      x-codeSamples:
+        - lang: cURL
+          label: Current profile
+          source: |
+            curl --request GET \
+              --url 'https://crest-inky.vercel.app/api/auth/profile' \
+              --header 'Accept: application/json' \
+              --header 'Cookie: {{crest_cookie_header}}'
+      responses:
+        "200":
+          description: Current authenticated profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Authentication]
+      summary: Synchronize the authenticated profile
+      description: Creates or refreshes the application profile from the active authentication session.
+      operationId: syncCurrentProfile
+      security:
+        - supabaseCookieHeader: []
+      responses:
+        "200":
+          description: Synchronized profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/auth/wallet/ethereum:
+    post:
+      tags: [Authentication]
+      summary: Authenticate with an Ethereum wallet signature
+      operationId: authenticateEthereumWallet
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EthereumWalletAuthRequest"
+      responses:
+        "200":
+          description: Authenticated wallet profile; the response may also establish a browser session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/auth/sign-out:
+    post:
+      tags: [Authentication]
+      summary: End the current CREST session
+      operationId: signOut
+      security:
+        - supabaseCookieHeader: []
+      responses:
+        "200":
+          description: Session ended.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/sign-in/google:
+    get:
+      tags: [Authentication]
+      summary: Start browser-based Google authentication
+      description: |
+        Starts the Google OAuth flow used by the CREST web client. This is a
+        browser redirect endpoint, not a JSON API. Postman users should normally
+        sign in through the website and then copy the complete Cookie header into
+        a private environment variable.
+      operationId: startGoogleSignIn
+      security: []
+      responses:
+        "302":
+          description: Redirect to the configured Google/Supabase authorization flow.
+          headers:
+            Location:
+              description: OAuth authorization URL.
+              schema:
+                type: string
+                format: uri
+        "400":
+          description: Invalid authentication initiation request.
+        "500":
+          description: Authentication is not configured or the OAuth flow could not be started.
+
+  /api/admin/ai-config:
+    get:
+      tags: [Administration]
+      summary: Get AI providers and prompt-credit settings
+      operationId: getAiConfiguration
+      security:
+        - supabaseCookieHeader: []
+      responses:
+        "200":
+          description: Administrator AI configuration. Stored API keys are not returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiConfigurationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Administration]
+      summary: Save an AI provider or global AI settings
+      operationId: saveAiConfiguration
+      security:
+        - supabaseCookieHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/SaveAiProviderRequest"
+                - $ref: "#/components/schemas/SaveAiSettingsRequest"
+      responses:
+        "200":
+          description: Saved provider or settings.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/SavedAiProviderResponse"
+                  - $ref: "#/components/schemas/SavedAiSettingsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/admin/ai-config/providers/{providerId}/test:
+    post:
+      tags: [Administration]
+      summary: Test a configured AI provider
+      operationId: testAiProvider
+      security:
+        - supabaseCookieHeader: []
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Provider connection test result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiProviderTestResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          description: The upstream AI provider could not be reached or rejected the test.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    supabaseCookieHeader:
+      type: apiKey
+      in: header
+      name: Cookie
+      description: |
+        Complete browser Cookie header containing every chunk of the CREST Supabase
+        session. The current deployment uses cookie names beginning with
+        `sb-szlsfmoacoafztgocimm-auth-token`; long values may be split into `.0`,
+        `.1`, and additional numbered chunks. Keep the full value in a private
+        Postman variable such as `crest_cookie_header`.
+
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: No valid CREST session. The deployed service returns `{"error":"Not authenticated."}` for anonymous profile and admin requests.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Not authenticated.
+    Forbidden:
+      description: The authenticated user is not an administrator.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServerError:
+      description: Server-side or upstream dependency error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    MarketAssetsResponse:
+      type: object
+      required: [data, breadth, freshness]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketAsset"
+        breadth:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketBreadth"
+        freshness:
+          $ref: "#/components/schemas/Freshness"
+
+    MarketAsset:
+      type: object
+      required:
+        - id
+        - sourceAssetId
+        - symbol
+        - name
+        - rank
+        - chain
+        - sectors
+        - venueAvailability
+        - source
+        - timeframe
+        - price
+        - priceChange24h
+        - volumeChange24h
+        - rsi14
+        - ma111
+        - maDistancePct
+        - regime4h
+        - recommendation30m
+        - coverageStatus
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        sourceAssetId:
+          type: string
+          example: BTC
+        cmcId:
+          type: integer
+          nullable: true
+        symbol:
+          type: string
+          example: BTC
+        name:
+          type: string
+          example: Bitcoin
+        rank:
+          type: integer
+          minimum: 1
+          example: 1
+        rankBasis:
+          type: string
+          example: binance_quote_volume_24h
+        quoteVolume24h:
+          type: number
+          format: double
+        tradeCount24h:
+          type: integer
+        blacklistStatus:
+          type: string
+          example: allowed
+        chain:
+          type: string
+          example: BTC
+        sectors:
+          type: array
+          items:
+            type: string
+          example: [Layer 1]
+        venueAvailability:
+          type: array
+          items:
+            $ref: "#/components/schemas/VenueAvailability"
+        source:
+          type: string
+          example: binance
+        timeframe:
+          type: string
+          enum: [30m, 4h]
+        price:
+          type: number
+          format: double
+        priceChange24h:
+          type: number
+          format: double
+        volumeChange24h:
+          type: number
+          format: double
+        rsi14:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+        ma111:
+          type: number
+          format: double
+        maDistancePct:
+          type: number
+          format: double
+        btcCorrelationScore:
+          type: number
+          format: double
+          nullable: true
+          minimum: -100
+          maximum: 100
+        regime4h:
+          type: string
+          enum: [Bullish, Neutral, Bearish]
+        recommendation30m:
+          type: string
+          enum: [Long/Buy, Wait, Short/Sell]
+        price4h:
+          type: number
+          format: double
+        ma1114h:
+          type: number
+          format: double
+        maDistance4hPct:
+          type: number
+          format: double
+        rsi4h:
+          type: number
+          format: double
+        rsi30m:
+          type: number
+          format: double
+        signalReason:
+          type: string
+        coverageStatus:
+          type: string
+          example: covered
+        updatedAt:
+          type: string
+          format: date-time
+
+    VenueAvailability:
+      type: object
+      required: [venue, markets, lastCheckedAt, isStale]
+      properties:
+        venue:
+          type: string
+          example: binance
+        markets:
+          type: array
+          items:
+            $ref: "#/components/schemas/VenueMarket"
+        lastCheckedAt:
+          type: string
+          format: date-time
+        isStale:
+          type: boolean
+
+    VenueMarket:
+      type: object
+      required: [marketType, marketSymbol, baseSymbol, quoteSymbol]
+      properties:
+        marketType:
+          type: string
+          enum: [spot, perp]
+        marketSymbol:
+          type: string
+          example: BTCUSDT
+        baseSymbol:
+          type: string
+          example: BTC
+        quoteSymbol:
+          type: string
+          example: USDT
+
+    MarketBreadth:
+      type: object
+      required:
+        - timeframe
+        - universe
+        - metricKind
+        - averageRsi
+        - positiveLabel
+        - negativeLabel
+        - neutralLabel
+        - positiveCount
+        - negativeCount
+        - neutralCount
+        - coverageCount
+        - updatedAt
+      properties:
+        timeframe:
+          type: string
+          enum: [30m, 4h]
+        universe:
+          type: string
+          example: Top 100
+        metricKind:
+          type: string
+          enum: [setup, regime]
+        averageRsi:
+          type: number
+          format: double
+        positiveLabel:
+          type: string
+        negativeLabel:
+          type: string
+        neutralLabel:
+          type: string
+        positiveCount:
+          type: integer
+        negativeCount:
+          type: integer
+        neutralCount:
+          type: integer
+        bullishCount:
+          type: integer
+        bearishCount:
+          type: integer
+        coverageCount:
+          type: integer
+        updatedAt:
+          type: string
+          format: date-time
+
+    Freshness:
+      type: object
+      required: [timeframe, source, updatedAt, stalenessSeconds, isStale, coverage]
+      properties:
+        timeframe:
+          type: string
+          enum: [30m, 4h]
+        source:
+          type: string
+          example: binance
+        updatedAt:
+          type: string
+          format: date-time
+        stalenessSeconds:
+          type: integer
+          minimum: 0
+        isStale:
+          type: boolean
+        coverage:
+          $ref: "#/components/schemas/Coverage"
+
+    Coverage:
+      type: object
+      required: [covered, total]
+      properties:
+        covered:
+          type: integer
+          minimum: 0
+        total:
+          type: integer
+          minimum: 0
+
+    AiChatRequest:
+      type: object
+      required: [message, timeframe, activePreset, filters, sort, pinnedAssets]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          example: Which assets have actionable 30m setups?
+        timeframe:
+          type: string
+          enum: [30m, 4h]
+        activePreset:
+          type: string
+          example: Custom
+        filters:
+          $ref: "#/components/schemas/MarketFilters"
+        sort:
+          $ref: "#/components/schemas/MarketSort"
+        pinnedAssets:
+          type: array
+          items:
+            type: string
+            pattern: '^\$[A-Z0-9]+$'
+          example: ["$BTC", "$ETH"]
+        threadId:
+          type: string
+          nullable: true
+          description: Existing AI thread identifier, when continuing a conversation.
+
+    MarketFilters:
+      type: object
+      required: [chains, searchQuery, rsiRange, maDistanceRange]
+      properties:
+        chains:
+          type: array
+          items:
+            type: string
+          example: [BTC, Ethereum]
+        searchQuery:
+          type: string
+          example: ""
+        rsiRange:
+          $ref: "#/components/schemas/NumberRange"
+        maDistanceRange:
+          $ref: "#/components/schemas/NumberRange"
+
+    NumberRange:
+      type: array
+      minItems: 2
+      maxItems: 2
+      items:
+        type: number
+      example: [0, 100]
+
+    MarketSort:
+      type: object
+      required: [key, direction]
+      properties:
+        key:
+          type: string
+          example: rank
+        direction:
+          type: string
+          enum: [asc, desc]
+
+    AiChatResponse:
+      type: object
+      required: [answer, context, provider]
+      properties:
+        answer:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+          description: Snapshot/context packet injected into the AI request.
+        provider:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+          description: Non-secret metadata for the AI provider used.
+        quota:
+          $ref: "#/components/schemas/PromptQuota"
+        threadId:
+          type: string
+
+    PromptQuota:
+      type: object
+      required: [remaining, limit]
+      additionalProperties: true
+      properties:
+        remaining:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 0
+        resetsAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ProfileResponse:
+      type: object
+      required: [profile]
+      properties:
+        profile:
+          $ref: "#/components/schemas/Profile"
+
+    Profile:
+      type: object
+      required: [id, role, displayName, provider]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, admin]
+        displayName:
+          type: string
+        provider:
+          type: string
+          example: google
+        xUserId:
+          type: string
+          nullable: true
+        walletAddress:
+          type: string
+          nullable: true
+          pattern: '^0x[a-fA-F0-9]{40}$'
+
+    EthereumWalletAuthRequest:
+      type: object
+      required: [message, signature]
+      properties:
+        message:
+          type: string
+          description: Human-readable SIWE-style message signed by the wallet.
+        signature:
+          type: string
+          pattern: '^0x[a-fA-F0-9]+$'
+
+    AiProvider:
+      type: object
+      required: [id, providerName, baseUrl, model, status, maxTokens, temperature]
+      properties:
+        id:
+          type: string
+          format: uuid
+        providerName:
+          type: string
+          example: OpenAI
+        baseUrl:
+          type: string
+          format: uri
+          example: https://api.openai.com/v1
+        model:
+          type: string
+          example: gpt-5
+        status:
+          type: string
+          enum: [active, disabled]
+        maxTokens:
+          type: integer
+          minimum: 64
+          maximum: 8192
+          default: 1800
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          default: 0.2
+        lastTestStatus:
+          type: string
+          nullable: true
+        lastTestedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    AiSettings:
+      type: object
+      required: [weeklyPromptLimit, resetTimezone, systemPrompt]
+      properties:
+        weeklyPromptLimit:
+          type: integer
+          minimum: 0
+          default: 5
+        resetTimezone:
+          type: string
+          example: Asia/Jakarta
+        systemPrompt:
+          type: string
+          description: Optional administrator instruction appended to CREST AI behavior.
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    AiConfigurationResponse:
+      type: object
+      required: [providers, settings]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiProvider"
+        settings:
+          $ref: "#/components/schemas/AiSettings"
+
+    SaveAiProviderRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: object
+          required: [providerName, baseUrl, model, status, maxTokens, temperature]
+          properties:
+            id:
+              type: string
+              format: uuid
+              nullable: true
+              description: Omit when creating a provider.
+            providerName:
+              type: string
+              example: OpenAI
+            baseUrl:
+              type: string
+              format: uri
+              example: https://api.openai.com/v1
+            model:
+              type: string
+              example: gpt-5
+            apiKey:
+              type: string
+              writeOnly: true
+              description: Required for a new provider; encrypted server-side.
+            status:
+              type: string
+              enum: [active, disabled]
+            maxTokens:
+              type: integer
+              minimum: 64
+              maximum: 8192
+              default: 1800
+            temperature:
+              type: number
+              minimum: 0
+              maximum: 2
+              default: 0.2
+
+    SaveAiSettingsRequest:
+      type: object
+      required: [settings]
+      properties:
+        settings:
+          $ref: "#/components/schemas/AiSettings"
+
+    SavedAiProviderResponse:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          $ref: "#/components/schemas/AiProvider"
+
+    SavedAiSettingsResponse:
+      type: object
+      required: [settings]
+      properties:
+        settings:
+          $ref: "#/components/schemas/AiSettings"
+
+    AiProviderTestResponse:
+      type: object
+      required: [ok, latencyMs]
+      properties:
+        ok:
+          type: boolean
+          example: true
+        latencyMs:
+          type: integer
+          minimum: 0
+
+    SuccessResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        quota:
+          $ref: "#/components/schemas/PromptQuota"
